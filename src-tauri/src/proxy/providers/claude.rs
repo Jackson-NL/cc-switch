@@ -89,16 +89,8 @@ fn is_moonshot_or_kimi_identifier(value: &str) -> bool {
 
 fn should_preserve_reasoning_content_for_openai_chat(
     provider: &Provider,
-    body: &serde_json::Value,
+    _body: &serde_json::Value,
 ) -> bool {
-    if body
-        .get("model")
-        .and_then(|m| m.as_str())
-        .is_some_and(is_moonshot_or_kimi_identifier)
-    {
-        return true;
-    }
-
     let settings = &provider.settings_config;
     let base_urls = [
         settings
@@ -1672,5 +1664,40 @@ mod tests {
         let msg = &transformed["messages"][0];
         assert_eq!(msg["reasoning_content"], "I should call the tool.");
         assert!(msg.get("tool_calls").is_some());
+    }
+
+    #[test]
+    fn test_transform_openai_chat_skips_reasoning_content_for_nvidia_kimi_provider() {
+        let provider = create_provider_with_meta(
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://integrate.api.nvidia.com",
+                    "ANTHROPIC_AUTH_TOKEN": "test-key"
+                }
+            }),
+            ProviderMeta {
+                api_format: Some("openai_chat".to_string()),
+                ..Default::default()
+            },
+        );
+        let body = json!({
+            "model": "moonshotai/kimi-k2.6",
+            "max_tokens": 64,
+            "messages": [{
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "I should call the tool."},
+                    {"type": "tool_use", "id": "call_123", "name": "get_weather", "input": {"location": "Tokyo"}}
+                ]
+            }]
+        });
+
+        let transformed =
+            transform_claude_request_for_api_format(body, &provider, "openai_chat", None, None)
+                .unwrap();
+
+        let msg = &transformed["messages"][0];
+        assert!(msg.get("tool_calls").is_some());
+        assert!(msg.get("reasoning_content").is_none());
     }
 }

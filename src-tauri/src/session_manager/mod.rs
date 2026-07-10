@@ -2,17 +2,22 @@ pub mod providers;
 pub mod terminal;
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use providers::{claude, codex, gemini, hermes, openclaw, opencode};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
     pub provider_id: String,
     pub session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_title: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_pinned: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -25,6 +30,19 @@ pub struct SessionMeta {
     pub source_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume_command: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionUserMetaRecord {
+    pub provider_id: String,
+    pub session_id: String,
+    pub source_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_title: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_pinned: bool,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -53,6 +71,146 @@ pub struct DeleteSessionOutcome {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMetaUpdateRequest {
+    pub provider_id: String,
+    pub session_id: String,
+    pub source_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_pinned: Option<bool>,
+}
+
+pub fn session_key(provider_id: &str, session_id: &str, source_path: Option<&str>) -> String {
+    format!(
+        "{}:{}:{}",
+        provider_id,
+        session_id,
+        source_path.unwrap_or("")
+    )
+}
+
+pub fn merge_session_user_meta(
+    mut sessions: Vec<SessionMeta>,
+    meta: HashMap<String, SessionUserMetaRecord>,
+) -> Vec<SessionMeta> {
+    for session in &mut sessions {
+        let key = session_key(
+            &session.provider_id,
+            &session.session_id,
+            session.source_path.as_deref(),
+        );
+        if let Some(record) = meta.get(&key) {
+            session.custom_title = record.custom_title.clone();
+            session.is_pinned = record.is_pinned;
+        }
+    }
+
+    sessions.sort_by(|a, b| {
+        let pin_a = if a.is_pinned { 1 } else { 0 };
+        let pin_b = if b.is_pinned { 1 } else { 0 };
+        pin_b
+            .cmp(&pin_a)
+            .then_with(|| {
+                let a_ts = a.last_active_at.or(a.created_at).unwrap_or(0);
+                let b_ts = b.last_active_at.or(b.created_at).unwrap_or(0);
+                b_ts.cmp(&a_ts)
+            })
+            .then_with(|| {
+                let a_title = a
+                    .custom_title
+                    .as_deref()
+                    .or(a.title.as_deref())
+                    .unwrap_or("");
+                let b_title = b
+                    .custom_title
+                    .as_deref()
+                    .or(b.title.as_deref())
+                    .unwrap_or("");
+                a_title.cmp(b_title)
+            })
+    });
+
+    sessions
+}
+
+pub fn list_sessions_with_user_meta(
+    db: &crate::database::Database,
+) -> Result<Vec<SessionMeta>, String> {
+    let sessions = scan_sessions();
+    let meta = db.get_session_user_meta().map_err(|e| e.to_string())?;
+    Ok(merge_session_user_meta(sessions, meta))
+}
+
+pub fn update_session_user_meta(
+    db: &crate::database::Database,
+    request: &SessionMetaUpdateRequest,
+) -> Result<(), String> {
+    let current = db
+        .get_session_user_meta()
+        .map_err(|e| e.to_string())?
+        .get(&session_key(
+            &request.provider_id,
+            &request.session_id,
+            Some(&request.source_path),
+        ))
+        .cloned();
+
+    let custom_title = match request.custom_title.as_deref() {
+        Some(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        None => current
+            .as_ref()
+            .and_then(|record| record.custom_title.clone()),
+    };
+
+    let is_pinned = request
+        .is_pinned
+        .or_else(|| current.as_ref().map(|record| record.is_pinned))
+        .unwrap_or(false);
+
+    if custom_title.is_none() && !is_pinned {
+        db.clear_session_user_meta(
+            &request.provider_id,
+            &request.session_id,
+            &request.source_path,
+        )
+        .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    db.upsert_session_user_meta(
+        &request.provider_id,
+        &request.session_id,
+        &request.source_path,
+        custom_title.as_deref(),
+        is_pinned,
+    )
+    .map_err(|e| e.to_string())
+}
+
+pub fn clear_session_user_meta(
+    db: &crate::database::Database,
+    provider_id: &str,
+    session_id: &str,
+    source_path: &str,
+) -> Result<(), String> {
+    db.clear_session_user_meta(provider_id, session_id, source_path)
+        .map_err(|e| e.to_string())
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 pub fn scan_sessions() -> Vec<SessionMeta> {

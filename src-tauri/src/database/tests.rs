@@ -52,6 +52,172 @@ const LEGACY_SCHEMA_SQL: &str = r#"
     );
 "#;
 
+const V10_SCHEMA_SQL: &str = r#"
+    CREATE TABLE providers (
+        id TEXT NOT NULL,
+        app_type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        settings_config TEXT NOT NULL,
+        website_url TEXT,
+        category TEXT,
+        created_at INTEGER,
+        sort_index INTEGER,
+        notes TEXT,
+        icon TEXT,
+        icon_color TEXT,
+        meta TEXT NOT NULL DEFAULT '{}',
+        is_current BOOLEAN NOT NULL DEFAULT 0,
+        PRIMARY KEY (id, app_type)
+    );
+    CREATE TABLE provider_endpoints (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        provider_id TEXT NOT NULL,
+        app_type TEXT NOT NULL,
+        url TEXT NOT NULL,
+        added_at INTEGER,
+        FOREIGN KEY (provider_id, app_type) REFERENCES providers(id, app_type) ON DELETE CASCADE
+    );
+    CREATE TABLE mcp_servers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        server_config TEXT NOT NULL,
+        description TEXT,
+        homepage TEXT,
+        docs TEXT,
+        tags TEXT NOT NULL DEFAULT '[]',
+        enabled_claude BOOLEAN NOT NULL DEFAULT 0,
+        enabled_codex BOOLEAN NOT NULL DEFAULT 0,
+        enabled_gemini BOOLEAN NOT NULL DEFAULT 0,
+        enabled_hermes BOOLEAN NOT NULL DEFAULT 0
+    );
+    CREATE TABLE prompts (
+        id TEXT NOT NULL,
+        app_type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        content TEXT NOT NULL,
+        description TEXT,
+        enabled BOOLEAN NOT NULL DEFAULT 1,
+        created_at INTEGER,
+        updated_at INTEGER,
+        PRIMARY KEY (id, app_type)
+    );
+    CREATE TABLE skills (
+        key TEXT PRIMARY KEY,
+        installed BOOLEAN NOT NULL DEFAULT 0,
+        installed_at INTEGER NOT NULL DEFAULT 0,
+        content_hash TEXT,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        enabled_claude BOOLEAN NOT NULL DEFAULT 0,
+        enabled_codex BOOLEAN NOT NULL DEFAULT 0,
+        enabled_gemini BOOLEAN NOT NULL DEFAULT 0,
+        enabled_hermes BOOLEAN NOT NULL DEFAULT 0
+    );
+    CREATE TABLE skill_repos (
+        owner TEXT NOT NULL,
+        name TEXT NOT NULL,
+        branch TEXT NOT NULL DEFAULT 'main',
+        enabled BOOLEAN NOT NULL DEFAULT 1,
+        PRIMARY KEY (owner, name)
+    );
+    CREATE TABLE settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    );
+    CREATE TABLE proxy_config (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        app_type TEXT,
+        proxy_enabled INTEGER NOT NULL DEFAULT 0,
+        listen_address TEXT NOT NULL DEFAULT '127.0.0.1',
+        listen_port INTEGER NOT NULL DEFAULT 15721,
+        enable_logging INTEGER NOT NULL DEFAULT 1,
+        max_retries INTEGER NOT NULL DEFAULT 3,
+        streaming_first_byte_timeout INTEGER NOT NULL DEFAULT 60,
+        streaming_idle_timeout INTEGER NOT NULL DEFAULT 120,
+        non_streaming_timeout INTEGER NOT NULL DEFAULT 600,
+        live_takeover_active INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE provider_health (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        provider_id TEXT NOT NULL,
+        app_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        checked_at INTEGER NOT NULL,
+        response_time_ms INTEGER
+    );
+    CREATE TABLE proxy_request_logs (
+        request_id TEXT PRIMARY KEY,
+        provider_id TEXT NOT NULL,
+        app_type TEXT NOT NULL,
+        model TEXT NOT NULL,
+        request_model TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+        input_cost_usd TEXT NOT NULL DEFAULT '0',
+        output_cost_usd TEXT NOT NULL DEFAULT '0',
+        cache_read_cost_usd TEXT NOT NULL DEFAULT '0',
+        cache_creation_cost_usd TEXT NOT NULL DEFAULT '0',
+        total_cost_usd TEXT NOT NULL DEFAULT '0',
+        latency_ms INTEGER NOT NULL,
+        first_token_ms INTEGER,
+        duration_ms INTEGER,
+        status_code INTEGER NOT NULL,
+        error_message TEXT,
+        session_id TEXT,
+        provider_type TEXT,
+        is_streaming INTEGER NOT NULL DEFAULT 0,
+        cost_multiplier TEXT NOT NULL DEFAULT '1.0',
+        created_at INTEGER NOT NULL,
+        data_source TEXT NOT NULL DEFAULT 'proxy'
+    );
+    CREATE TABLE model_pricing (
+        model_id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        input_cost_per_million TEXT NOT NULL,
+        output_cost_per_million TEXT NOT NULL,
+        cache_read_cost_per_million TEXT NOT NULL DEFAULT '0',
+        cache_creation_cost_per_million TEXT NOT NULL DEFAULT '0'
+    );
+    CREATE TABLE stream_check_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        app_type TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        tested_at INTEGER NOT NULL,
+        status_code INTEGER NOT NULL,
+        latency_ms INTEGER,
+        is_streaming INTEGER NOT NULL DEFAULT 0,
+        error_message TEXT,
+        created_at INTEGER NOT NULL
+    );
+    CREATE TABLE proxy_live_backup (
+        app_type TEXT PRIMARY KEY,
+        original_config TEXT NOT NULL,
+        backed_up_at TEXT NOT NULL
+    );
+    CREATE TABLE usage_daily_rollups (
+        date TEXT NOT NULL,
+        app_type TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        request_count INTEGER NOT NULL DEFAULT 0,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cost_usd TEXT NOT NULL DEFAULT '0',
+        avg_latency_ms INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (date, app_type, provider_id, model)
+    );
+    CREATE TABLE session_log_sync (
+        file_path TEXT PRIMARY KEY,
+        last_modified INTEGER NOT NULL,
+        last_line_offset INTEGER NOT NULL DEFAULT 0,
+        last_synced_at INTEGER NOT NULL
+    );
+"#;
+
 // v3.8.x（schema v1）的真实表结构快照：用于验证从 v3.8.* 升级到当前版本的迁移链路
 // 参考：tag v3.8.3 的 src-tauri/src/database/schema.rs
 const V3_8_SCHEMA_V1_SQL: &str = r#"
@@ -218,6 +384,21 @@ fn schema_migration_adds_missing_columns_for_providers() {
         "meta default should be '{{}}'"
     );
 
+    assert_eq!(
+        Database::get_user_version(&conn).expect("version after migration"),
+        SCHEMA_VERSION
+    );
+}
+
+#[test]
+fn schema_migration_adds_session_user_meta_table() {
+    let conn = Connection::open_in_memory().expect("open memory db");
+    conn.execute_batch(V10_SCHEMA_SQL).expect("seed v10 schema");
+    Database::set_user_version(&conn, 10).expect("set version");
+
+    Database::apply_schema_migrations_on_conn(&conn).expect("apply migrations");
+
+    assert!(Database::table_exists(&conn, "session_user_meta").expect("table exists"));
     assert_eq!(
         Database::get_user_version(&conn).expect("version after migration"),
         SCHEMA_VERSION

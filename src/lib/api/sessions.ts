@@ -12,9 +12,18 @@ export interface DeleteSessionResult extends DeleteSessionOptions {
   error?: string;
 }
 
+export interface UpdateSessionUserMetaOptions extends DeleteSessionOptions {
+  customTitle?: string | null;
+  isPinned?: boolean | null;
+}
+
 export const sessionsApi = {
   async list(): Promise<SessionMeta[]> {
     return await invoke("list_sessions");
+  },
+
+  async listWithMeta(): Promise<SessionMeta[]> {
+    return await invoke("list_sessions_with_meta");
   },
 
   async getMessages(
@@ -37,6 +46,29 @@ export const sessionsApi = {
     items: DeleteSessionOptions[],
   ): Promise<DeleteSessionResult[]> {
     return await invoke("delete_sessions", { items });
+  },
+
+  async updateMeta(options: UpdateSessionUserMetaOptions): Promise<boolean> {
+    const { providerId, sessionId, sourcePath, customTitle, isPinned } =
+      options;
+    return await invoke("update_session_user_meta", {
+      request: {
+        providerId,
+        sessionId,
+        sourcePath,
+        customTitle,
+        isPinned,
+      },
+    });
+  },
+
+  async clearMeta(options: DeleteSessionOptions): Promise<boolean> {
+    const { providerId, sessionId, sourcePath } = options;
+    return await invoke("clear_session_user_meta", {
+      providerId,
+      sessionId,
+      sourcePath,
+    });
   },
 
   async launchTerminal(options: {

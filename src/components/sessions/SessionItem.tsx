@@ -1,4 +1,11 @@
-import { ChevronRight, Clock } from "lucide-react";
+import {
+  ChevronRight,
+  Clock,
+  MoreHorizontal,
+  Pin,
+  PinOff,
+  Pencil,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -6,6 +13,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import type { SessionMeta } from "@/types";
@@ -27,6 +40,8 @@ interface SessionItemProps {
   searchQuery?: string;
   onSelect: (key: string) => void;
   onToggleChecked: (checked: boolean) => void;
+  onTogglePin: () => void;
+  onRename: () => void;
 }
 
 export function SessionItem({
@@ -38,6 +53,8 @@ export function SessionItem({
   searchQuery,
   onSelect,
   onToggleChecked,
+  onTogglePin,
+  onRename,
 }: SessionItemProps) {
   const { t } = useTranslation();
   const title = formatSessionTitle(session);
@@ -50,7 +67,9 @@ export function SessionItem({
         "flex items-start gap-2 rounded-lg px-3 py-2.5 transition-all group",
         isSelected
           ? "bg-primary/10 border border-primary/30"
-          : "hover:bg-muted/60 border border-transparent",
+          : session.isPinned
+            ? "bg-amber-50/70 border border-amber-300/70 dark:bg-amber-950/20 dark:border-amber-700/40"
+            : "hover:bg-muted/60 border border-transparent",
       )}
     >
       {selectionMode && (
@@ -65,29 +84,66 @@ export function SessionItem({
           />
         </div>
       )}
-      <button
-        type="button"
-        onClick={() => onSelect(sessionKey)}
-        className="min-w-0 flex-1 text-left"
-      >
-        <div className="flex items-center gap-2 mb-1">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start gap-2 mb-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="shrink-0">
+              <button
+                type="button"
+                onClick={() => onSelect(sessionKey)}
+                className="shrink-0 pt-0.5"
+              >
                 <ProviderIcon
                   icon={getProviderIconName(session.providerId)}
                   name={session.providerId}
                   size={18}
                 />
-              </span>
+              </button>
             </TooltipTrigger>
             <TooltipContent>
               {getProviderLabel(session.providerId, t)}
             </TooltipContent>
           </Tooltip>
-          <span className="text-sm font-medium line-clamp-2 flex-1">
+          <button
+            type="button"
+            onClick={() => onSelect(sessionKey)}
+            className="min-w-0 flex-1 text-left text-sm font-medium line-clamp-2"
+          >
             {searchQuery ? highlightText(title, searchQuery) : title}
-          </span>
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="ml-auto inline-flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <MoreHorizontal className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => onTogglePin()}>
+                {session.isPinned ? (
+                  <PinOff className="mr-2 size-4" />
+                ) : (
+                  <Pin className="mr-2 size-4" />
+                )}
+                {session.isPinned
+                  ? t("sessionManager.unpinSession", {
+                      defaultValue: "取消置顶",
+                    })
+                  : t("sessionManager.pinSession", {
+                      defaultValue: "置顶会话",
+                    })}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onRename()}>
+                <Pencil className="mr-2 size-4" />
+                {t("sessionManager.renameSession", {
+                  defaultValue: "重命名",
+                })}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <ChevronRight
             className={cn(
               "size-4 text-muted-foreground/50 shrink-0 transition-transform",
@@ -104,7 +160,7 @@ export function SessionItem({
               : t("common.unknown")}
           </span>
         </div>
-      </button>
+      </div>
     </div>
   );
 }

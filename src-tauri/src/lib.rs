@@ -1231,9 +1231,12 @@ pub fn run() {
             commands::save_stream_check_config,
             // Session manager
             commands::list_sessions,
+            commands::list_sessions_with_meta,
             commands::get_session_messages,
             commands::delete_session,
             commands::delete_sessions,
+            commands::update_session_user_meta,
+            commands::clear_session_user_meta,
             commands::launch_session_terminal,
             commands::get_tool_versions,
             // Provider terminal

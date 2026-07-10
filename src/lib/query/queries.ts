@@ -137,7 +137,7 @@ export const useUsageQuery = (
 export const useSessionsQuery = () => {
   return useQuery<SessionMeta[]>({
     queryKey: ["sessions"],
-    queryFn: async () => sessionsApi.list(),
+    queryFn: async () => sessionsApi.listWithMeta(),
     staleTime: 30 * 1000,
   });
 };

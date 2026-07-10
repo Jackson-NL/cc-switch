@@ -87,8 +87,8 @@ const openSearch = () => {
 };
 
 const closeSearch = () => {
-  const closeButton = Array.from(screen.getAllByRole("button")).find(
-    (button) => button.querySelector(".lucide-x"),
+  const closeButton = Array.from(screen.getAllByRole("button")).find((button) =>
+    button.querySelector(".lucide-x"),
   );
 
   if (!closeButton) {
@@ -97,6 +97,12 @@ const closeSearch = () => {
 
   fireEvent.click(closeButton);
 };
+
+const getSessionListTitles = () =>
+  screen
+    .getByText("sessionManager.sessionList")
+    .closest(".rounded-lg")
+    ?.querySelectorAll("button.text-sm.font-medium.line-clamp-2");
 
 describe("SessionManagerPage", () => {
   beforeEach(() => {
@@ -329,5 +335,44 @@ describe("SessionManagerPage", () => {
       resolveInvalidate();
     });
     invalidateSpy.mockRestore();
+  });
+
+  it("pins a session and keeps it at the top of the list", async () => {
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByText("Alpha Session")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByText("Beta Session"));
+    fireEvent.click(screen.getByRole("button", { name: /置顶会话/i }));
+
+    await waitFor(() => {
+      const titles = Array.from(getSessionListTitles() ?? []).map(
+        (node) => node.textContent,
+      );
+      expect(titles[0]).toBe("Beta Session");
+    });
+  });
+
+  it("renames a session with a local custom title", async () => {
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByText("Alpha Session")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /重命名/i }));
+    fireEvent.change(screen.getByPlaceholderText("输入新名称"), {
+      target: { value: "Important Codex Thread" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /保存/i }));
+
+    await waitFor(() => {
+      const titles = Array.from(getSessionListTitles() ?? []).map(
+        (node) => node.textContent,
+      );
+      expect(titles).toContain("Important Codex Thread");
+    });
   });
 });

@@ -10,7 +10,10 @@ import type {
 type ProvidersByApp = Record<AppId, Record<string, Provider>>;
 type CurrentProviderState = Record<AppId, string>;
 type McpConfigState = Record<AppId, Record<string, McpServer>>;
-type LiveProviderIdsByApp = Record<"opencode" | "openclaw" | "hermes", string[]>;
+type LiveProviderIdsByApp = Record<
+  "opencode" | "openclaw" | "hermes",
+  string[]
+>;
 
 const createDefaultProviders = (): ProvidersByApp => ({
   claude: {
@@ -96,6 +99,11 @@ let settingsState: Settings = {
 let appConfigDirOverride: string | null = null;
 const sessionMessageKey = (providerId: string, sourcePath: string) =>
   `${providerId}:${sourcePath}`;
+const sessionMetaKey = (
+  providerId: string,
+  sessionId: string,
+  sourcePath: string,
+) => `${providerId}:${sessionId}:${sourcePath}`;
 
 const createDefaultSessions = (): SessionMeta[] => {
   const now = Date.now();
@@ -144,6 +152,10 @@ const createDefaultSessionMessages = (): Record<string, SessionMessage[]> => ({
 
 let sessionsState = createDefaultSessions();
 let sessionMessagesState = createDefaultSessionMessages();
+let sessionMetaState: Record<
+  string,
+  { customTitle?: string; isPinned?: boolean }
+> = {};
 let mcpConfigs: McpConfigState = {
   claude: {
     sample: {
@@ -257,14 +269,18 @@ export const resetProviderState = () => {
   };
 };
 
+export const resetSessionMetaState = () => {
+  sessionMetaState = {};
+};
+
 export const getProviders = (appType: AppId) =>
   cloneProviders(providers)[appType] ?? {};
 
 export const getCurrentProviderId = (appType: AppId) => current[appType] ?? "";
 
-export const getLiveProviderIds = (appType: "opencode" | "openclaw" | "hermes") => [
-  ...liveProviderIds[appType],
-];
+export const getLiveProviderIds = (
+  appType: "opencode" | "openclaw" | "hermes",
+) => [...liveProviderIds[appType]];
 
 export const setLiveProviderIds = (
   appType: "opencode" | "openclaw" | "hermes",
@@ -399,7 +415,23 @@ export const deleteMcpServer = (appType: AppId, id: string) => {
 };
 
 export const listSessions = () =>
-  JSON.parse(JSON.stringify(sessionsState)) as SessionMeta[];
+  JSON.parse(
+    JSON.stringify(
+      sessionsState.map((session) => {
+        const key = sessionMetaKey(
+          session.providerId,
+          session.sessionId,
+          session.sourcePath ?? "",
+        );
+        const meta = sessionMetaState[key];
+        return {
+          ...session,
+          customTitle: meta?.customTitle,
+          isPinned: meta?.isPinned ?? false,
+        };
+      }),
+    ),
+  ) as SessionMeta[];
 
 export const getSessionMessages = (providerId: string, sourcePath: string) =>
   JSON.parse(
@@ -422,6 +454,42 @@ export const deleteSession = (
       ),
   );
   delete sessionMessagesState[sessionMessageKey(providerId, sourcePath)];
+  delete sessionMetaState[sessionMetaKey(providerId, sessionId, sourcePath)];
+  return true;
+};
+
+export const updateSessionMeta = (
+  providerId: string,
+  sessionId: string,
+  sourcePath: string,
+  customTitle?: string | null,
+  isPinned?: boolean | null,
+) => {
+  const key = sessionMetaKey(providerId, sessionId, sourcePath);
+  const current = sessionMetaState[key] ?? {};
+  const next = {
+    customTitle:
+      customTitle !== undefined
+        ? customTitle?.trim() || undefined
+        : current.customTitle,
+    isPinned: isPinned ?? current.isPinned ?? false,
+  };
+
+  if (!next.customTitle && !next.isPinned) {
+    delete sessionMetaState[key];
+    return true;
+  }
+
+  sessionMetaState[key] = next;
+  return true;
+};
+
+export const clearSessionMeta = (
+  providerId: string,
+  sessionId: string,
+  sourcePath: string,
+) => {
+  delete sessionMetaState[sessionMetaKey(providerId, sessionId, sourcePath)];
   return true;
 };
 

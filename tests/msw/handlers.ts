@@ -3,6 +3,7 @@ import type { AppId } from "@/lib/api/types";
 import type { McpServer, Provider, Settings } from "@/types";
 import {
   addProvider,
+  clearSessionMeta,
   deleteProvider,
   deleteSession,
   getCurrentProviderId,
@@ -15,6 +16,7 @@ import {
   setCurrentProviderId,
   updateProvider,
   updateSortOrder,
+  updateSessionMeta,
   getSettings,
   setSettings,
   getAppConfigDirOverride,
@@ -126,6 +128,9 @@ export const handlers = [
   http.post(`${TAURI_ENDPOINT}/open_external`, () => success(true)),
 
   http.post(`${TAURI_ENDPOINT}/list_sessions`, () => success(listSessions())),
+  http.post(`${TAURI_ENDPOINT}/list_sessions_with_meta`, () =>
+    success(listSessions()),
+  ),
 
   http.post(`${TAURI_ENDPOINT}/get_session_messages`, async ({ request }) => {
     const { providerId, sourcePath } = await withJson<{
@@ -166,6 +171,42 @@ export const handlers = [
       })),
     );
   }),
+
+  http.post(
+    `${TAURI_ENDPOINT}/update_session_user_meta`,
+    async ({ request }) => {
+      const { request: payload } = await withJson<{
+        request: {
+          providerId: string;
+          sessionId: string;
+          sourcePath: string;
+          customTitle?: string | null;
+          isPinned?: boolean | null;
+        };
+      }>(request);
+      return success(
+        updateSessionMeta(
+          payload.providerId,
+          payload.sessionId,
+          payload.sourcePath,
+          payload.customTitle,
+          payload.isPinned,
+        ),
+      );
+    },
+  ),
+
+  http.post(
+    `${TAURI_ENDPOINT}/clear_session_user_meta`,
+    async ({ request }) => {
+      const { providerId, sessionId, sourcePath } = await withJson<{
+        providerId: string;
+        sessionId: string;
+        sourcePath: string;
+      }>(request);
+      return success(clearSessionMeta(providerId, sessionId, sourcePath));
+    },
+  ),
 
   // MCP APIs
   http.post(`${TAURI_ENDPOINT}/get_mcp_config`, async ({ request }) => {

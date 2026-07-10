@@ -15,7 +15,11 @@ import {
   FolderOpen,
   X,
   CheckSquare,
+  Pin,
+  PinOff,
+  Pencil,
 } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
 import {
   useDeleteSessionMutation,
   useSessionMessagesQuery,
@@ -35,6 +39,14 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -80,6 +92,8 @@ export function SessionManagerPage({ appId }: { appId: string }) {
   const [deleteTargets, setDeleteTargets] = useState<SessionMeta[] | null>(
     null,
   );
+  const [renameTarget, setRenameTarget] = useState<SessionMeta | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [selectedSessionKeys, setSelectedSessionKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -133,6 +147,18 @@ export function SessionManagerPage({ appId }: { appId: string }) {
       selectedSession?.sourcePath,
     );
   const deleteSessionMutation = useDeleteSessionMutation();
+  const sessionMetaMutation = useMutation({
+    mutationFn: async (input: {
+      providerId: string;
+      sessionId: string;
+      sourcePath: string;
+      customTitle?: string | null;
+      isPinned?: boolean | null;
+    }) => sessionsApi.updateMeta(input),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    },
+  });
   const isDeleting = deleteSessionMutation.isPending || isBatchDeleting;
 
   const virtualizer = useVirtualizer({
@@ -255,6 +281,13 @@ export function SessionManagerPage({ appId }: { appId: string }) {
         sessionId: target.sessionId,
         sourcePath: target.sourcePath!,
       });
+      if (target.sourcePath) {
+        await sessionsApi.clearMeta({
+          providerId: target.providerId,
+          sessionId: target.sessionId,
+          sourcePath: target.sourcePath,
+        });
+      }
       setSelectedSessionKeys((current) => {
         const next = new Set(current);
         next.delete(getSessionKey(target));
@@ -300,6 +333,17 @@ export function SessionManagerPage({ appId }: { appId: string }) {
             queryKey: ["sessionMessages", result.providerId, result.sourcePath],
           });
         });
+      await Promise.all(
+        targets.map((session) =>
+          sessionsApi
+            .clearMeta({
+              providerId: session.providerId,
+              sessionId: session.sessionId,
+              sourcePath: session.sourcePath!,
+            })
+            .catch(() => undefined),
+        ),
+      );
 
       setSelectedSessionKeys((current) => {
         const next = new Set(current);
@@ -339,6 +383,35 @@ export function SessionManagerPage({ appId }: { appId: string }) {
     } finally {
       setIsBatchDeleting(false);
     }
+  };
+
+  const handleTogglePin = async (session: SessionMeta) => {
+    if (!session.sourcePath) return;
+    await sessionMetaMutation.mutateAsync({
+      providerId: session.providerId,
+      sessionId: session.sessionId,
+      sourcePath: session.sourcePath,
+      customTitle: session.customTitle ?? null,
+      isPinned: !session.isPinned,
+    });
+  };
+
+  const openRenameDialog = (session: SessionMeta) => {
+    setRenameTarget(session);
+    setRenameValue(session.customTitle ?? session.title ?? "");
+  };
+
+  const confirmRename = async () => {
+    if (!renameTarget?.sourcePath) return;
+    await sessionMetaMutation.mutateAsync({
+      providerId: renameTarget.providerId,
+      sessionId: renameTarget.sessionId,
+      sourcePath: renameTarget.sourcePath,
+      customTitle: renameValue,
+      isPinned: renameTarget.isPinned ?? false,
+    });
+    setRenameTarget(null);
+    setRenameValue("");
   };
 
   const deletableFilteredSessions = useMemo(
@@ -792,6 +865,8 @@ export function SessionManagerPage({ appId }: { appId: string }) {
                               onToggleChecked={(checked) =>
                                 toggleSessionChecked(session, checked)
                               }
+                              onTogglePin={() => void handleTogglePin(session)}
+                              onRename={() => openRenameDialog(session)}
                             />
                           );
                         })}
@@ -839,6 +914,9 @@ export function SessionManagerPage({ appId }: { appId: string }) {
                           <h2 className="text-base font-semibold truncate">
                             {formatSessionTitle(selectedSession)}
                           </h2>
+                          {selectedSession.isPinned && (
+                            <Pin className="size-3.5 text-amber-500 shrink-0" />
+                          )}
                         </div>
 
                         {/* 元信息 */}
@@ -889,6 +967,65 @@ export function SessionManagerPage({ appId }: { appId: string }) {
 
                       {/* 右侧：操作按钮组 */}
                       <div className="flex items-center gap-2 shrink-0">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5"
+                              onClick={() =>
+                                void handleTogglePin(selectedSession)
+                              }
+                              disabled={!selectedSession.sourcePath}
+                            >
+                              {selectedSession.isPinned ? (
+                                <PinOff className="size-3.5" />
+                              ) : (
+                                <Pin className="size-3.5" />
+                              )}
+                              <span className="hidden sm:inline">
+                                {selectedSession.isPinned
+                                  ? t("sessionManager.unpinSession", {
+                                      defaultValue: "取消置顶",
+                                    })
+                                  : t("sessionManager.pinSession", {
+                                      defaultValue: "置顶会话",
+                                    })}
+                              </span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {selectedSession.isPinned
+                              ? t("sessionManager.unpinSession", {
+                                  defaultValue: "取消置顶",
+                                })
+                              : t("sessionManager.pinSession", {
+                                  defaultValue: "置顶会话",
+                                })}
+                          </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5"
+                              onClick={() => openRenameDialog(selectedSession)}
+                            >
+                              <Pencil className="size-3.5" />
+                              <span className="hidden sm:inline">
+                                {t("sessionManager.renameSession", {
+                                  defaultValue: "重命名",
+                                })}
+                              </span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {t("sessionManager.renameSession", {
+                              defaultValue: "重命名",
+                            })}
+                          </TooltipContent>
+                        </Tooltip>
                         {isMac() && (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -1119,6 +1256,48 @@ export function SessionManagerPage({ appId }: { appId: string }) {
           }
         }}
       />
+      <Dialog
+        open={Boolean(renameTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRenameTarget(null);
+            setRenameValue("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {t("sessionManager.renameSession", {
+                defaultValue: "重命名",
+              })}
+            </DialogTitle>
+            <DialogDescription>
+              {t("sessionManager.renameDescription", {
+                defaultValue: "自定义名称仅在本机显示，不会修改原始会话文件。",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-6 py-4">
+            <Input
+              value={renameValue}
+              onChange={(event) => setRenameValue(event.target.value)}
+              placeholder={t("sessionManager.renamePlaceholder", {
+                defaultValue: "输入新名称",
+              })}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRenameTarget(null)}>
+              {t("common.cancel", { defaultValue: "取消" })}
+            </Button>
+            <Button onClick={() => void confirmRename()}>
+              {t("common.save", { defaultValue: "保存" })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 }

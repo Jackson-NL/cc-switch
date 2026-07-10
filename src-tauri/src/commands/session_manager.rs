@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 
 use crate::session_manager;
+use crate::store::AppState;
 
 #[tauri::command]
 pub async fn list_sessions() -> Result<Vec<session_manager::SessionMeta>, String> {
@@ -8,6 +9,16 @@ pub async fn list_sessions() -> Result<Vec<session_manager::SessionMeta>, String
         .await
         .map_err(|e| format!("Failed to scan sessions: {e}"))?;
     Ok(sessions)
+}
+
+#[tauri::command]
+pub async fn list_sessions_with_meta(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<session_manager::SessionMeta>, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || session_manager::list_sessions_with_user_meta(&db))
+        .await
+        .map_err(|e| format!("Failed to scan sessions: {e}"))?
 }
 
 #[tauri::command]
@@ -82,4 +93,34 @@ pub async fn delete_sessions(
     tauri::async_runtime::spawn_blocking(move || session_manager::delete_sessions(&items))
         .await
         .map_err(|e| format!("Failed to delete sessions: {e}"))
+}
+
+#[tauri::command]
+pub async fn update_session_user_meta(
+    state: tauri::State<'_, AppState>,
+    request: session_manager::SessionMetaUpdateRequest,
+) -> Result<bool, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        session_manager::update_session_user_meta(&db, &request)
+    })
+    .await
+    .map_err(|e| format!("Failed to update session user meta: {e}"))??;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn clear_session_user_meta(
+    state: tauri::State<'_, AppState>,
+    providerId: String,
+    sessionId: String,
+    sourcePath: String,
+) -> Result<bool, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        session_manager::clear_session_user_meta(&db, &providerId, &sessionId, &sourcePath)
+    })
+    .await
+    .map_err(|e| format!("Failed to clear session user meta: {e}"))??;
+    Ok(true)
 }

@@ -75,6 +75,7 @@ export const getRoleLabel = (role: string, t: (key: string) => string) => {
 
 export const formatSessionTitle = (session: SessionMeta) => {
   return (
+    session.customTitle ||
     session.title ||
     getBaseName(session.projectDir) ||
     session.sessionId.slice(0, 8)

@@ -228,10 +228,32 @@ pub fn anthropic_to_openai_with_reasoning_content(
     }
 
     if let Some(v) = body.get("tool_choice") {
-        result["tool_choice"] = v.clone();
+        result["tool_choice"] = map_tool_choice_to_openai_chat(v);
     }
 
     Ok(result)
+}
+
+fn map_tool_choice_to_openai_chat(tool_choice: &Value) -> Value {
+    match tool_choice {
+        Value::String(_) => tool_choice.clone(),
+        Value::Object(obj) => match obj.get("type").and_then(|t| t.as_str()) {
+            Some("any") => json!("required"),
+            Some("auto") => json!("auto"),
+            Some("none") => json!("none"),
+            Some("tool") => {
+                let name = obj.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                json!({
+                    "type": "function",
+                    "function": {
+                        "name": name
+                    }
+                })
+            }
+            _ => tool_choice.clone(),
+        },
+        _ => tool_choice.clone(),
+    }
 }
 
 fn normalize_openai_system_messages(messages: &mut Vec<Value>) {
@@ -774,6 +796,33 @@ mod tests {
         let result = anthropic_to_openai(input).unwrap();
         assert_eq!(result["tools"][0]["type"], "function");
         assert_eq!(result["tools"][0]["function"]["name"], "get_weather");
+    }
+
+    #[test]
+    fn test_anthropic_to_openai_maps_tool_choice_any_to_required() {
+        let input = json!({
+            "model": "claude-3-opus",
+            "max_tokens": 1024,
+            "messages": [{"role": "user", "content": "What's the weather?"}],
+            "tool_choice": {"type": "any"}
+        });
+
+        let result = anthropic_to_openai(input).unwrap();
+        assert_eq!(result["tool_choice"], "required");
+    }
+
+    #[test]
+    fn test_anthropic_to_openai_maps_tool_choice_tool_to_openai_function_selector() {
+        let input = json!({
+            "model": "claude-3-opus",
+            "max_tokens": 1024,
+            "messages": [{"role": "user", "content": "What's the weather?"}],
+            "tool_choice": {"type": "tool", "name": "get_weather"}
+        });
+
+        let result = anthropic_to_openai(input).unwrap();
+        assert_eq!(result["tool_choice"]["type"], "function");
+        assert_eq!(result["tool_choice"]["function"]["name"], "get_weather");
     }
 
     #[test]

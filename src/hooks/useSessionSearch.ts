@@ -34,6 +34,7 @@ export function useSessionSearch({
       const metaContent = [
         session.sessionId,
         session.title,
+        session.customTitle,
         session.summary,
         session.projectDir,
         session.sourcePath,
@@ -53,6 +54,11 @@ export function useSessionSearch({
 
       if (!needle) {
         return [...filteredByProvider].sort((a, b) => {
+          const pinA = a.isPinned ? 1 : 0;
+          const pinB = b.isPinned ? 1 : 0;
+          if (pinA !== pinB) {
+            return pinB - pinA;
+          }
           const aTs = a.lastActiveAt ?? a.createdAt ?? 0;
           const bTs = b.lastActiveAt ?? b.createdAt ?? 0;
           return bTs - aTs;
