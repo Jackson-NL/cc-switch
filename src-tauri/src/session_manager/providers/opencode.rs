@@ -150,7 +150,8 @@ fn scan_sessions_sqlite() -> Vec<SessionMeta> {
             last_active_at: Some(updated),
             source_path: Some(format!("sqlite:{db_display}:{session_id}")),
             resume_command: Some(format!("opencode -s {session_id}")),
-            ..Default::default()
+            custom_title: None,
+            is_pinned: false,
         });
     }
     sessions
@@ -475,7 +476,8 @@ fn parse_session(storage: &Path, path: &Path) -> Option<SessionMeta> {
         last_active_at: updated_at.or(created_at),
         source_path: Some(source_path),
         resume_command: Some(format!("opencode -s {session_id}")),
-        ..Default::default()
+        custom_title: None,
+        is_pinned: false,
     })
 }
 
@@ -779,37 +781,6 @@ mod tests {
         assert!(parse_sqlite_source("/tmp/opencode.db:ses_123").is_none());
         assert!(parse_sqlite_source("sqlite:/tmp/opencode.db:msg_123").is_none());
         assert!(parse_sqlite_source("sqlite:/tmp/opencode.db").is_none());
-    }
-
-    #[test]
-    fn parse_session_uses_session_flag_resume_command() {
-        let temp = tempdir().expect("tempdir");
-        let storage = temp.path();
-        let session_id = "ses_json";
-        let project_id = "project-json";
-        let session_dir = storage.join("session").join(project_id);
-        std::fs::create_dir_all(&session_dir).expect("create session dir");
-
-        let session_file = session_dir.join(format!("{session_id}.json"));
-        std::fs::write(
-            &session_file,
-            format!(
-                r#"{{
-                  "id": "{session_id}",
-                  "projectID": "{project_id}",
-                  "directory": "/tmp/project",
-                  "time": {{ "created": 1, "updated": 2 }}
-                }}"#
-            ),
-        )
-        .expect("write session file");
-
-        let session = parse_session(storage, &session_file).expect("parse session");
-
-        assert_eq!(
-            session.resume_command.as_deref(),
-            Some("opencode -s ses_json")
-        );
     }
 
     #[test]

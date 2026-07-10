@@ -6,6 +6,7 @@ import type {
   SessionMeta,
   Settings,
 } from "@/types";
+import { deepClone } from "@/utils/deepClone";
 
 type ProvidersByApp = Record<AppId, Record<string, Provider>>;
 type CurrentProviderState = Record<AppId, string>;
@@ -34,6 +35,7 @@ const createDefaultProviders = (): ProvidersByApp => ({
       createdAt: Date.now() + 1,
     },
   },
+  "claude-desktop": {},
   codex: {
     "codex-1": {
       id: "codex-1",
@@ -74,6 +76,7 @@ const createDefaultProviders = (): ProvidersByApp => ({
 
 const createDefaultCurrent = (): CurrentProviderState => ({
   claude: "claude-1",
+  "claude-desktop": "",
   codex: "codex-1",
   gemini: "gemini-1",
   opencode: "",
@@ -104,6 +107,11 @@ const sessionMetaKey = (
   sessionId: string,
   sourcePath: string,
 ) => `${providerId}:${sessionId}:${sourcePath}`;
+
+type SessionUserMeta = {
+  customTitle?: string;
+  isPinned?: boolean;
+};
 
 const createDefaultSessions = (): SessionMeta[] => {
   const now = Date.now();
@@ -152,10 +160,7 @@ const createDefaultSessionMessages = (): Record<string, SessionMessage[]> => ({
 
 let sessionsState = createDefaultSessions();
 let sessionMessagesState = createDefaultSessionMessages();
-let sessionMetaState: Record<
-  string,
-  { customTitle?: string; isPinned?: boolean }
-> = {};
+let sessionMetaState: Record<string, SessionUserMeta> = {};
 let mcpConfigs: McpConfigState = {
   claude: {
     sample: {
@@ -176,6 +181,7 @@ let mcpConfigs: McpConfigState = {
       },
     },
   },
+  "claude-desktop": {},
   codex: {
     httpServer: {
       id: "httpServer",
@@ -202,7 +208,7 @@ let mcpConfigs: McpConfigState = {
 };
 
 const cloneProviders = (value: ProvidersByApp) =>
-  JSON.parse(JSON.stringify(value)) as ProvidersByApp;
+  deepClone(value) as ProvidersByApp;
 
 export const resetProviderState = () => {
   providers = createDefaultProviders();
@@ -214,6 +220,7 @@ export const resetProviderState = () => {
   };
   sessionsState = createDefaultSessions();
   sessionMessagesState = createDefaultSessionMessages();
+  sessionMetaState = {};
   settingsState = {
     showInTray: true,
     minimizeToTrayOnClose: true,
@@ -243,6 +250,7 @@ export const resetProviderState = () => {
         },
       },
     },
+    "claude-desktop": {},
     codex: {
       httpServer: {
         id: "httpServer",
@@ -267,10 +275,6 @@ export const resetProviderState = () => {
     openclaw: {},
     hermes: {},
   };
-};
-
-export const resetSessionMetaState = () => {
-  sessionMetaState = {};
 };
 
 export const getProviders = (appType: AppId) =>
@@ -306,10 +310,7 @@ export const setProviders = (
   appType: AppId,
   data: Record<string, Provider>,
 ) => {
-  providers[appType] = JSON.parse(JSON.stringify(data)) as Record<
-    string,
-    Provider
-  >;
+  providers[appType] = deepClone(data) as Record<string, Provider>;
 };
 
 export const addProvider = (appType: AppId, provider: Provider) => {
@@ -348,13 +349,9 @@ export const updateSortOrder = (
 };
 
 export const listProviders = (appType: AppId) =>
-  JSON.parse(JSON.stringify(providers[appType] ?? {})) as Record<
-    string,
-    Provider
-  >;
+  deepClone(providers[appType] ?? {}) as Record<string, Provider>;
 
-export const getSettings = () =>
-  JSON.parse(JSON.stringify(settingsState)) as Settings;
+export const getSettings = () => deepClone(settingsState) as Settings;
 
 export const setSettings = (data: Partial<Settings>) => {
   settingsState = { ...settingsState, ...data };
@@ -367,9 +364,10 @@ export const setAppConfigDirOverrideState = (value: string | null) => {
 };
 
 export const getMcpConfig = (appType: AppId) => {
-  const servers = JSON.parse(
-    JSON.stringify(mcpConfigs[appType] ?? {}),
-  ) as Record<string, McpServer>;
+  const servers = deepClone(mcpConfigs[appType] ?? {}) as Record<
+    string,
+    McpServer
+  >;
   return {
     configPath: `/mock/${appType}.mcp.json`,
     servers,
@@ -380,10 +378,7 @@ export const setMcpConfig = (
   appType: AppId,
   value: Record<string, McpServer>,
 ) => {
-  mcpConfigs[appType] = JSON.parse(JSON.stringify(value)) as Record<
-    string,
-    McpServer
-  >;
+  mcpConfigs[appType] = deepClone(value) as Record<string, McpServer>;
 };
 
 export const setMcpServerEnabled = (
@@ -406,7 +401,7 @@ export const upsertMcpServer = (
   if (!mcpConfigs[appType]) {
     mcpConfigs[appType] = {};
   }
-  mcpConfigs[appType][id] = JSON.parse(JSON.stringify(server)) as McpServer;
+  mcpConfigs[appType][id] = deepClone(server) as McpServer;
 };
 
 export const deleteMcpServer = (appType: AppId, id: string) => {
@@ -415,29 +410,22 @@ export const deleteMcpServer = (appType: AppId, id: string) => {
 };
 
 export const listSessions = () =>
-  JSON.parse(
-    JSON.stringify(
-      sessionsState.map((session) => {
-        const key = sessionMetaKey(
+  deepClone(
+    sessionsState.map((session) => ({
+      ...session,
+      ...sessionMetaState[
+        sessionMetaKey(
           session.providerId,
           session.sessionId,
           session.sourcePath ?? "",
-        );
-        const meta = sessionMetaState[key];
-        return {
-          ...session,
-          customTitle: meta?.customTitle,
-          isPinned: meta?.isPinned ?? false,
-        };
-      }),
-    ),
+        )
+      ],
+    })),
   ) as SessionMeta[];
 
 export const getSessionMessages = (providerId: string, sourcePath: string) =>
-  JSON.parse(
-    JSON.stringify(
-      sessionMessagesState[sessionMessageKey(providerId, sourcePath)] ?? [],
-    ),
+  deepClone(
+    sessionMessagesState[sessionMessageKey(providerId, sourcePath)] ?? [],
   ) as SessionMessage[];
 
 export const deleteSession = (
@@ -466,21 +454,23 @@ export const updateSessionMeta = (
   isPinned?: boolean | null,
 ) => {
   const key = sessionMetaKey(providerId, sessionId, sourcePath);
-  const current = sessionMetaState[key] ?? {};
-  const next = {
+  const currentMeta = sessionMetaState[key] ?? {};
+  const nextMeta: SessionUserMeta = {
     customTitle:
-      customTitle !== undefined
-        ? customTitle?.trim() || undefined
-        : current.customTitle,
-    isPinned: isPinned ?? current.isPinned ?? false,
+      customTitle === undefined
+        ? currentMeta.customTitle
+        : customTitle || undefined,
+    isPinned:
+      isPinned === undefined || isPinned === null
+        ? currentMeta.isPinned
+        : isPinned,
   };
 
-  if (!next.customTitle && !next.isPinned) {
+  if (!nextMeta.customTitle && !nextMeta.isPinned) {
     delete sessionMetaState[key];
-    return true;
+  } else {
+    sessionMetaState[key] = nextMeta;
   }
-
-  sessionMetaState[key] = next;
   return true;
 };
 
@@ -497,9 +487,10 @@ export const setSessionFixtures = (
   sessions: SessionMeta[],
   messages: Record<string, SessionMessage[]>,
 ) => {
-  sessionsState = JSON.parse(JSON.stringify(sessions)) as SessionMeta[];
-  sessionMessagesState = JSON.parse(JSON.stringify(messages)) as Record<
+  sessionsState = deepClone(sessions) as SessionMeta[];
+  sessionMessagesState = deepClone(messages) as Record<
     string,
     SessionMessage[]
   >;
+  sessionMetaState = {};
 };
